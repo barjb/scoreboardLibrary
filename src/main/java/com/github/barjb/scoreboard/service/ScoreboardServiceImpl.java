@@ -1,6 +1,7 @@
 package com.github.barjb.scoreboard.service;
 
 import com.github.barjb.scoreboard.dto.MatchSummary;
+import com.github.barjb.scoreboard.dto.TeamSummary;
 import com.github.barjb.scoreboard.model.Match;
 import com.github.barjb.scoreboard.model.MatchId;
 import com.github.barjb.scoreboard.model.MatchStatus;
@@ -82,6 +83,23 @@ public class ScoreboardServiceImpl implements ScoreboardService {
             Match finished = match.withStatus(MatchStatus.FINISHED);
             return matchRepository.save(finished);
         }
+    }
+
+    @Override
+    public TeamSummary getTeamSummary(Team team, Instant from, Instant to) {
+        Objects.requireNonNull(team, "Team must not be null");
+        if (to != null && to.isBefore(from)) {
+            throw new IllegalArgumentException("To can not be before from");
+        }
+        return matchRepository.findAllTeamMatches(team, from, to)
+                .stream()
+                .map(m ->
+                        new TeamSummary(team,1, m.goalsScored(team), m.goalsConceeded(team), from, to)
+                )
+                .reduce(new TeamSummary(team, 0,0, 0, from, to),
+                        (t1, t2) ->
+                                new TeamSummary(team, t1.matchplayed() + 1, t1.goalsScored() + t2.goalsScored(), t1.goalsConceeded() + t2.goalsConceeded(), from, to)
+                );
     }
 
     @Override

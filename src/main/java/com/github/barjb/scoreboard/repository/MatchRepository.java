@@ -2,7 +2,9 @@ package com.github.barjb.scoreboard.repository;
 
 import com.github.barjb.scoreboard.model.Match;
 import com.github.barjb.scoreboard.model.MatchId;
+import com.github.barjb.scoreboard.model.Team;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,4 +17,6 @@ public interface MatchRepository {
     List<Match> findAllInProgress();
 
     void deleteById(MatchId id);
+
+    List<Match> findAllTeamMatches(Team team, Instant from, Instant to);
 }

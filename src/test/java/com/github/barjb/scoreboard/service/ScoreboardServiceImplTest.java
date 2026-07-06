@@ -1,25 +1,19 @@
 package com.github.barjb.scoreboard.service;
 
-import static java.time.temporal.ChronoUnit.SECONDS;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.within;
-
-import com.github.barjb.scoreboard.dto.MatchSummary;
 import com.github.barjb.scoreboard.exception.MatchNotFoundException;
-import com.github.barjb.scoreboard.model.Match;
-import com.github.barjb.scoreboard.model.MatchId;
-import com.github.barjb.scoreboard.model.MatchStatus;
-import com.github.barjb.scoreboard.model.Score;
-import com.github.barjb.scoreboard.model.Team;
+import com.github.barjb.scoreboard.model.*;
 import com.github.barjb.scoreboard.repository.InMemoryMatchRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+
+import static java.time.temporal.ChronoUnit.SECONDS;
+import static org.assertj.core.api.Assertions.*;
 
 class ScoreboardServiceImplTest {
 
@@ -474,4 +468,56 @@ class ScoreboardServiceImplTest {
             assertThat(persisted.score()).isEqualTo(new Score(3, 1));
         }
     }
+
+    @Test
+    public void shouldReturnTeamSummaryInGivenPeriod() {
+        // given
+        Instant start = Instant.now();
+        Match matchA = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.updateScore(matchA.id(), new Score(1, 0));
+        scoreboardService.finishMatch(matchA.id());
+
+        Match matchB = scoreboardService.startMatch(new Team("Mexico"), new Team("Brazil"));
+        scoreboardService.updateScore(matchB.id(), new Score(1, 1));
+        scoreboardService.finishMatch(matchB.id());
+
+        Match matchC = scoreboardService.startMatch(new Team("Germany"), new Team("Mexico"));
+        scoreboardService.updateScore(matchC.id(), new Score(2, 1));
+        scoreboardService.finishMatch(matchC.id());
+
+        // when
+        var summary = scoreboardService.getTeamSummary(new Team("Mexico"), start, null);
+
+        // then
+        assertThat(summary.goalsScored()).isEqualTo(3);
+        assertThat(summary.goalsConceeded()).isEqualTo(3);
+        assertThat(summary.matchplayed()).isEqualTo(3);
+    }
+
+    @Test
+    public void shouldReturnNoMatchPlayedInTeamSummaryInGivenPeriod() {
+        // given
+        Match matchA = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.updateScore(matchA.id(), new Score(1, 0));
+        scoreboardService.finishMatch(matchA.id());
+
+        Match matchB = scoreboardService.startMatch(new Team("Mexico"), new Team("Brazil"));
+        scoreboardService.updateScore(matchB.id(), new Score(1, 1));
+        scoreboardService.finishMatch(matchB.id());
+
+        Match matchC = scoreboardService.startMatch(new Team("Germany"), new Team("Mexico"));
+        scoreboardService.updateScore(matchC.id(), new Score(2, 1));
+        scoreboardService.finishMatch(matchC.id());
+
+        Instant start = Instant.now();
+
+        // when
+        var summary = scoreboardService.getTeamSummary(new Team("Mexico"), start, null);
+
+        // then
+        assertThat(summary.goalsScored()).isEqualTo(0);
+        assertThat(summary.goalsConceeded()).isEqualTo(0);
+        assertThat(summary.matchplayed()).isEqualTo(0);
+    }
+
 }

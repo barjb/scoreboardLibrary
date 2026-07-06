@@ -37,4 +37,18 @@ public record Match(
         }
         return new Match(id, home, away, score, newStatus, startedAt, newFinishedAt);
     }
+
+    public int goalsScored(Team t) {
+        if(home.equals(t)) return score.homeScore();
+        if(away.equals(t)) return score.awayScore();
+        throw new IllegalStateException(
+                "Team '" + t.name() + "' is not playing in match");
+    }
+
+    public int goalsConceeded(Team t) {
+        if(home.equals(t)) return score.awayScore();
+        if(away.equals(t)) return score.homeScore();
+        throw new IllegalStateException(
+                "Team '" + t.name() + "' is not playing in match");
+    }
 }
