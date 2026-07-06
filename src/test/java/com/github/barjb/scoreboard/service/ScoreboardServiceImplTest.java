@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
+import com.github.barjb.scoreboard.exception.MatchNotFoundException;
 import com.github.barjb.scoreboard.model.Match;
+import com.github.barjb.scoreboard.model.MatchId;
 import com.github.barjb.scoreboard.model.MatchStatus;
 import com.github.barjb.scoreboard.model.Score;
 import com.github.barjb.scoreboard.model.Team;
@@ -145,5 +147,76 @@ class ScoreboardServiceImplTest {
         assertThat(match3.status()).isEqualTo(MatchStatus.IN_PROGRESS);
 
         assertThat(matchRepository.findAllInProgress()).hasSize(3);
+    }
+
+    @Test
+    void shouldUpdateScore() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+
+        // when
+        Match updated = scoreboardService.updateScore(match.id(), new Score(2, 1));
+
+        // then
+        assertThat(updated.id()).isEqualTo(match.id());
+        assertThat(updated.score()).isEqualTo(new Score(2, 1));
+        assertThat(updated.status()).isEqualTo(MatchStatus.IN_PROGRESS);
+
+        // persisted
+        Match persisted = matchRepository.findById(match.id()).orElseThrow();
+        assertThat(persisted.score()).isEqualTo(new Score(2, 1));
+    }
+
+    @Test
+    void shouldThrowMatchNotFoundExceptionWhenUpdatingUnknownMatch() {
+        // given
+        MatchId unknownId = MatchId.random();
+
+        // when / then
+        assertThatThrownBy(() -> scoreboardService.updateScore(unknownId, new Score(1, 0)))
+                .isInstanceOf(MatchNotFoundException.class)
+                .hasMessageContaining(unknownId.value().toString());
+    }
+
+    @Test
+    void shouldThrowIllegalStateExceptionWhenUpdatingFinishedMatch() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.updateScore(match.id(), new Score(3, 1));
+        Match finished = match.withStatus(MatchStatus.FINISHED);
+        matchRepository.save(finished);
+
+        // when / then
+        assertThatThrownBy(() -> scoreboardService.updateScore(finished.id(), new Score(4, 2)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FINISHED");
+    }
+
+    @Test
+    void shouldAllowScoreDecrease() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.updateScore(match.id(), new Score(5, 3));
+
+        // when — decrease the score
+        Match updated = scoreboardService.updateScore(match.id(), new Score(2, 1));
+
+        // then
+        assertThat(updated.score()).isEqualTo(new Score(2, 1));
+    }
+
+    @Test
+    void shouldThrowWhenUpdateScoreMatchIdIsNull() {
+        assertThatThrownBy(() -> scoreboardService.updateScore(null, new Score(1, 0)))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void shouldThrowWhenUpdateScoreScoreIsNull() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+
+        assertThatThrownBy(() -> scoreboardService.updateScore(match.id(), null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

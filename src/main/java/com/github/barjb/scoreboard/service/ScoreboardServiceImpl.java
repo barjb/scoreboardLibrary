@@ -5,6 +5,7 @@ import com.github.barjb.scoreboard.model.MatchId;
 import com.github.barjb.scoreboard.model.MatchStatus;
 import com.github.barjb.scoreboard.model.Score;
 import com.github.barjb.scoreboard.model.Team;
+import com.github.barjb.scoreboard.exception.MatchNotFoundException;
 import com.github.barjb.scoreboard.repository.MatchRepository;
 import org.springframework.stereotype.Service;
 
@@ -38,6 +39,23 @@ public class ScoreboardServiceImpl implements ScoreboardService {
         );
 
         return matchRepository.save(match);
+    }
+
+    @Override
+    public Match updateScore(MatchId id, Score newScore) {
+        Objects.requireNonNull(id, "MatchId must not be null");
+        Objects.requireNonNull(newScore, "Score must not be null");
+
+        Match match = matchRepository.findById(id)
+                .orElseThrow(() -> new MatchNotFoundException(id));
+
+        if (match.status() != MatchStatus.IN_PROGRESS) {
+            throw new IllegalStateException(
+                    "Cannot update score: match " + id.value() + " is " + match.status());
+        }
+
+        Match updated = match.withScore(newScore);
+        return matchRepository.save(updated);
     }
 
     private void assertTeamsNotAlreadyPlaying(Team home, Team away) {
