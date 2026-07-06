@@ -14,6 +14,10 @@ import com.github.barjb.scoreboard.model.Score;
 import com.github.barjb.scoreboard.model.Team;
 import com.github.barjb.scoreboard.repository.InMemoryMatchRepository;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -363,5 +367,111 @@ class ScoreboardServiceImplTest {
         // second summary has the new score
         var secondSnapshot = scoreboardService.getSummary();
         assertThat(secondSnapshot.get(0).score()).isEqualTo(new Score(5, 3));
+    }
+
+    @Test
+    void shouldNotAllowDuplicateTeamUnderConcurrentStart() throws InterruptedException {
+        // given
+        int threadCount = 10;
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger errorCount = new AtomicInteger(0);
+
+        Team home = new Team("Mexico");
+        Team away = new Team("Canada");
+
+        // when — all threads fire startMatch simultaneously
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    scoreboardService.startMatch(home, away);
+                    successCount.incrementAndGet();
+                } catch (IllegalStateException e) {
+                    errorCount.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        latch.await();
+        executor.shutdown();
+
+        // then — only one match started, the rest got IllegalStateException
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(errorCount.get()).isEqualTo(threadCount - 1);
+        assertThat(matchRepository.findAllInProgress()).hasSize(1);
+    }
+
+    @Test
+    void shouldHandleConcurrentUpdateScoreOnSameMatch() throws InterruptedException {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        int threadCount = 10;
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+        // when — all threads update the same match concurrently
+        for (int i = 0; i < threadCount; i++) {
+            final int score = i + 1;
+            executor.submit(() -> {
+                try {
+                    scoreboardService.updateScore(match.id(), new Score(score, score));
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        latch.await();
+        executor.shutdown();
+
+        // then — final score is one of the updates (last-write-wins), no corruption
+        Match persisted = matchRepository.findById(match.id()).orElseThrow();
+        assertThat(persisted.status()).isEqualTo(MatchStatus.IN_PROGRESS);
+        // score should be one of the valid updates (1-10 range)
+        assertThat(persisted.score().homeScore()).isBetween(1, 10);
+        assertThat(persisted.score().awayScore()).isBetween(1, 10);
+        assertThat(persisted.score().homeScore()).isEqualTo(persisted.score().awayScore());
+    }
+
+    @Test
+    void shouldHandleConcurrentFinishAndUpdateScore() throws InterruptedException {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        CountDownLatch latch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        // when — one thread finishes, one updates, simultaneously
+        executor.submit(() -> {
+            try {
+                scoreboardService.finishMatch(match.id());
+            } finally {
+                latch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                scoreboardService.updateScore(match.id(), new Score(3, 1));
+            } catch (IllegalStateException e) {
+                // expected if finish happened first — race is acceptable
+            } finally {
+                latch.countDown();
+            }
+        });
+        latch.await();
+        executor.shutdown();
+
+        // then — the end state is always consistent, never corrupted
+        Match persisted = matchRepository.findById(match.id()).orElseThrow();
+        // Two possible valid outcomes:
+        // 1) FINISHED with original score (finish won)
+        // 2) IN_PROGRESS with new score 3-1 (update won after finish was submitted but before it executed)
+        assertThat(persisted.status()).isIn(MatchStatus.IN_PROGRESS, MatchStatus.FINISHED);
+        if (persisted.status() == MatchStatus.FINISHED) {
+            assertThat(persisted.finishedAt()).isNotNull();
+            assertThat(persisted.score()).isEqualTo(new Score(0, 0));
+        } else {
+            assertThat(persisted.score()).isEqualTo(new Score(3, 1));
+        }
     }
 }

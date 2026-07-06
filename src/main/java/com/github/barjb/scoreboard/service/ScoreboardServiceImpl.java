@@ -19,6 +19,7 @@ import java.util.Objects;
 public class ScoreboardServiceImpl implements ScoreboardService {
 
     private final MatchRepository matchRepository;
+    private final Object mutex = new Object();
 
     public ScoreboardServiceImpl(MatchRepository matchRepository) {
         this.matchRepository = matchRepository;
@@ -29,19 +30,21 @@ public class ScoreboardServiceImpl implements ScoreboardService {
         Objects.requireNonNull(home, "Home team must not be null");
         Objects.requireNonNull(away, "Away team must not be null");
 
-        assertTeamsNotAlreadyPlaying(home, away);
+        synchronized (mutex) {
+            assertTeamsNotAlreadyPlaying(home, away);
 
-        Match match = new Match(
-                MatchId.random(),
-                home,
-                away,
-                new Score(0, 0),
-                MatchStatus.IN_PROGRESS,
-                Instant.now(),
-                null
-        );
+            Match match = new Match(
+                    MatchId.random(),
+                    home,
+                    away,
+                    new Score(0, 0),
+                    MatchStatus.IN_PROGRESS,
+                    Instant.now(),
+                    null
+            );
 
-        return matchRepository.save(match);
+            return matchRepository.save(match);
+        }
     }
 
     @Override
@@ -49,32 +52,36 @@ public class ScoreboardServiceImpl implements ScoreboardService {
         Objects.requireNonNull(id, "MatchId must not be null");
         Objects.requireNonNull(newScore, "Score must not be null");
 
-        Match match = matchRepository.findById(id)
-                .orElseThrow(() -> new MatchNotFoundException(id));
+        synchronized (mutex) {
+            Match match = matchRepository.findById(id)
+                    .orElseThrow(() -> new MatchNotFoundException(id));
 
-        if (match.status() != MatchStatus.IN_PROGRESS) {
-            throw new IllegalStateException(
-                    "Cannot update score: match " + id.value() + " is " + match.status());
+            if (match.status() != MatchStatus.IN_PROGRESS) {
+                throw new IllegalStateException(
+                        "Cannot update score: match " + id.value() + " is " + match.status());
+            }
+
+            Match updated = match.withScore(newScore);
+            return matchRepository.save(updated);
         }
-
-        Match updated = match.withScore(newScore);
-        return matchRepository.save(updated);
     }
 
     @Override
     public Match finishMatch(MatchId id) {
         Objects.requireNonNull(id, "MatchId must not be null");
 
-        Match match = matchRepository.findById(id)
-                .orElseThrow(() -> new MatchNotFoundException(id));
+        synchronized (mutex) {
+            Match match = matchRepository.findById(id)
+                    .orElseThrow(() -> new MatchNotFoundException(id));
 
-        if (match.status() == MatchStatus.FINISHED) {
-            throw new IllegalStateException(
-                    "Cannot finish: match " + id.value() + " is already FINISHED");
+            if (match.status() == MatchStatus.FINISHED) {
+                throw new IllegalStateException(
+                        "Cannot finish: match " + id.value() + " is already FINISHED");
+            }
+
+            Match finished = match.withStatus(MatchStatus.FINISHED);
+            return matchRepository.save(finished);
         }
-
-        Match finished = match.withStatus(MatchStatus.FINISHED);
-        return matchRepository.save(finished);
     }
 
     @Override
