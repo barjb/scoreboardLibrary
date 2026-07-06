@@ -1,6 +1,6 @@
 ---
 name: prompt-history
-description: Create a timestamped markdown file in /promtHistory when the user requests prompt history creation
+description: Create a timestamped markdown file in ./promtHistory when the user requests prompt history creation
 ---
 
 When invoked:
