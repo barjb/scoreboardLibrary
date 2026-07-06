@@ -5,10 +5,19 @@ IDE used: Open Code GUI
 Model used: DeepSeek V4 Flash Free - the best free reasoning model in Open Code for this task.
 
 ## Prompt history
+Prompt history is available in .opencode/promptHistory and it was created with promp-history skill.
 
 ## Artifacts used
+None.
+
+## About AI usage
+According to requirements I decided to heavily leverage AI tools in the project.
+Entirety of the code was written with usage of AI.
+The requirements were created with prompt in `Design Page` section.
+From the initial design there were created user stories, which were later used to implement the application.
 
 ## Design phase
+The prompt was created as a collection of requirements and assumptions about the solution.
 ```aiignore
 You are a senior software architect at a company producing software 
 for sport data sector. You specialize in producing system designs.
