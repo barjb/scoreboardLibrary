@@ -1,5 +1,6 @@
 package com.github.barjb.scoreboard.service;
 
+import com.github.barjb.scoreboard.dto.MatchSummary;
 import com.github.barjb.scoreboard.model.Match;
 import com.github.barjb.scoreboard.model.MatchId;
 import com.github.barjb.scoreboard.model.MatchStatus;
@@ -10,6 +11,8 @@ import com.github.barjb.scoreboard.repository.MatchRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 
 @Service
@@ -56,6 +59,32 @@ public class ScoreboardServiceImpl implements ScoreboardService {
 
         Match updated = match.withScore(newScore);
         return matchRepository.save(updated);
+    }
+
+    @Override
+    public Match finishMatch(MatchId id) {
+        Objects.requireNonNull(id, "MatchId must not be null");
+
+        Match match = matchRepository.findById(id)
+                .orElseThrow(() -> new MatchNotFoundException(id));
+
+        if (match.status() == MatchStatus.FINISHED) {
+            throw new IllegalStateException(
+                    "Cannot finish: match " + id.value() + " is already FINISHED");
+        }
+
+        Match finished = match.withStatus(MatchStatus.FINISHED);
+        return matchRepository.save(finished);
+    }
+
+    @Override
+    public List<MatchSummary> getSummary() {
+        return matchRepository.findAllInProgress().stream()
+                .map(MatchSummary::from)
+                .sorted(Comparator
+                        .comparingInt((MatchSummary s) -> s.score().total()).reversed()
+                        .thenComparing(Comparator.comparing(MatchSummary::startedAt).reversed()))
+                .toList();
     }
 
     private void assertTeamsNotAlreadyPlaying(Team home, Team away) {

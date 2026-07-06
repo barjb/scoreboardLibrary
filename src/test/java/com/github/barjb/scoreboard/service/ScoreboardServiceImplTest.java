@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
+import com.github.barjb.scoreboard.dto.MatchSummary;
 import com.github.barjb.scoreboard.exception.MatchNotFoundException;
 import com.github.barjb.scoreboard.model.Match;
 import com.github.barjb.scoreboard.model.MatchId;
@@ -218,5 +219,149 @@ class ScoreboardServiceImplTest {
 
         assertThatThrownBy(() -> scoreboardService.updateScore(match.id(), null))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void shouldFinishMatch() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+
+        // when
+        Match finished = scoreboardService.finishMatch(match.id());
+
+        // then
+        assertThat(finished.id()).isEqualTo(match.id());
+        assertThat(finished.status()).isEqualTo(MatchStatus.FINISHED);
+        assertThat(finished.finishedAt()).isCloseTo(Instant.now(), within(1, SECONDS));
+        assertThat(finished.score()).isEqualTo(new Score(0, 0));
+
+        // persisted
+        Match persisted = matchRepository.findById(match.id()).orElseThrow();
+        assertThat(persisted.status()).isEqualTo(MatchStatus.FINISHED);
+        assertThat(persisted.finishedAt()).isCloseTo(Instant.now(), within(1, SECONDS));
+    }
+
+    @Test
+    void shouldThrowMatchNotFoundExceptionWhenFinishingUnknownMatch() {
+        // given
+        MatchId unknownId = MatchId.random();
+
+        // when / then
+        assertThatThrownBy(() -> scoreboardService.finishMatch(unknownId))
+                .isInstanceOf(MatchNotFoundException.class)
+                .hasMessageContaining(unknownId.value().toString());
+    }
+
+    @Test
+    void shouldThrowIllegalStateExceptionWhenFinishingAlreadyFinishedMatch() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.finishMatch(match.id());
+
+        // when / then
+        assertThatThrownBy(() -> scoreboardService.finishMatch(match.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FINISHED");
+    }
+
+    @Test
+    void shouldThrowWhenFinishMatchIdIsNull() {
+        assertThatThrownBy(() -> scoreboardService.finishMatch(null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void shouldReturnSummaryOrderedByTotalScoreDescending() {
+        // given
+        Match matchA = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        Match matchB = scoreboardService.startMatch(new Team("Spain"), new Team("Brazil"));
+        Match matchC = scoreboardService.startMatch(new Team("Germany"), new Team("France"));
+
+        scoreboardService.updateScore(matchA.id(), new Score(3, 2));  // total 5
+        scoreboardService.updateScore(matchB.id(), new Score(0, 4));  // total 4
+        scoreboardService.updateScore(matchC.id(), new Score(2, 1));  // total 3
+
+        // when
+        var summary = scoreboardService.getSummary();
+
+        // then
+        assertThat(summary).hasSize(3);
+        assertThat(summary.get(0).id()).isEqualTo(matchA.id());  // 5 → first
+        assertThat(summary.get(1).id()).isEqualTo(matchB.id());  // 4 → second
+        assertThat(summary.get(2).id()).isEqualTo(matchC.id());  // 3 → third
+    }
+
+    @Test
+    void shouldOrderByMostRecentlyStartedWhenScoresAreEqual() {
+        // given — two matches with same total score but different startedAt
+        Match older = new Match(
+                MatchId.random(),
+                new Team("Older"), new Team("Team"),
+                new Score(2, 2),          // total 4
+                MatchStatus.IN_PROGRESS,
+                Instant.now().minusSeconds(10),
+                null
+        );
+        Match newer = new Match(
+                MatchId.random(),
+                new Team("Newer"), new Team("Team"),
+                new Score(3, 1),          // total 4
+                MatchStatus.IN_PROGRESS,
+                Instant.now(),
+                null
+        );
+        matchRepository.save(older);
+        matchRepository.save(newer);
+
+        // when
+        var summary = scoreboardService.getSummary();
+
+        // then — newer (most recent) should come first
+        assertThat(summary).hasSize(2);
+        assertThat(summary.get(0).id()).isEqualTo(newer.id());
+        assertThat(summary.get(1).id()).isEqualTo(older.id());
+    }
+
+    @Test
+    void shouldExcludeFinishedMatchesFromSummary() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.finishMatch(match.id());
+
+        // when
+        var summary = scoreboardService.getSummary();
+
+        // then
+        assertThat(summary).isEmpty();
+    }
+
+    @Test
+    void shouldReturnEmptyListWhenNoMatchesInProgress() {
+        // when
+        var summary = scoreboardService.getSummary();
+
+        // then
+        assertThat(summary).isEmpty();
+    }
+
+    @Test
+    void shouldReturnSnapshotNotAffectedByLaterMutations() {
+        // given
+        Match match = scoreboardService.startMatch(new Team("Mexico"), new Team("Canada"));
+        scoreboardService.updateScore(match.id(), new Score(1, 0));
+
+        // when — capture first summary
+        var firstSnapshot = scoreboardService.getSummary();
+
+        // mutate the match after the snapshot
+        scoreboardService.updateScore(match.id(), new Score(5, 3));
+
+        // then — first snapshot still has old score
+        assertThat(firstSnapshot).hasSize(1);
+        assertThat(firstSnapshot.get(0).score()).isEqualTo(new Score(1, 0));
+
+        // second summary has the new score
+        var secondSnapshot = scoreboardService.getSummary();
+        assertThat(secondSnapshot.get(0).score()).isEqualTo(new Score(5, 3));
     }
 }
